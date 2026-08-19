@@ -20,7 +20,10 @@ export async function POST(request, { params }) {
 
     const providerId = connection.provider;
     const isCompatible = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
-    const alias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
+    const alias = connection.providerSpecificData?.prefix
+      || PROVIDER_ID_TO_ALIAS[providerId]
+      || providerId;
+    const defaultKind = connection.providerSpecificData?.apiType === "images" ? "image" : "llm";
 
     let models = getProviderModels(alias);
 
@@ -44,14 +47,14 @@ export async function POST(request, { params }) {
     // Warm up with first model to trigger token refresh (if needed) before parallel calls.
     // This prevents race condition where multiple requests concurrently refresh the same token.
     const [first, ...rest] = models;
-    const firstKind = first.kind || first.type || "llm";
+    const firstKind = first.kind || first.type || defaultKind;
     const firstResult = await pingModelByKind(`${alias}/${first.id}`, firstKind, baseUrl);
     const results = [{ modelId: first.id, name: first.name || first.id, ...firstResult }];
 
     if (rest.length > 0) {
       const restResults = await Promise.all(
         rest.map(async (model) => {
-          const result = await pingModelByKind(`${alias}/${model.id}`, model.kind || model.type || "llm", baseUrl);
+          const result = await pingModelByKind(`${alias}/${model.id}`, model.kind || model.type || defaultKind, baseUrl);
           return { modelId: model.id, name: model.name || model.id, ...result };
         })
       );

@@ -40,6 +40,18 @@ describe("Grok CLI live models", () => {
     ]);
   });
 
+  it("keeps SuperGrok grok-4.6 ids from the live catalog", () => {
+    expect(parseGrokCliModels({
+      data: [
+        { id: "grok-4.6", display_name: "Grok 4.6", context_length: 500000 },
+        { id: "grok-4.5", display_name: "Grok 4.5", context_length: 500000 },
+      ],
+    })).toEqual([
+      expect.objectContaining({ id: "grok-4.6", name: "Grok 4.6", contextLength: 500000 }),
+      expect.objectContaining({ id: "grok-4.5", name: "Grok 4.5", contextLength: 500000 }),
+    ]);
+  });
+
   it("refreshes and retries through selected proxy", async () => {
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ error: "expired" }, 401))

@@ -26,7 +26,7 @@ const HELP = `
 Usage: 9router xai video --prompt "..." [options]
 
 Generate a Grok Imagine video via your local 9router gateway
-(requires a connected xAI account — Grok Build OAuth or API key).
+(requires Grok CLI (Grok Build) login or an xAI API key).
 
 Options:
   --prompt <text>         Video description (required)
@@ -251,8 +251,8 @@ async function run(argv) {
     if (create.status !== 200 || !create.body?.request_id) {
       const detail = create.body?.error?.message || create.body?.error || create.raw || `HTTP ${create.status}`;
       console.error(`❌ Create failed: ${sanitizeText(typeof detail === "string" ? detail : JSON.stringify(detail)).slice(0, 500)}`);
-      if (create.status === 400 && /No credentials/i.test(String(detail))) {
-        console.error("   Connect an xAI account first: dashboard → Providers → xAI (Grok).");
+      if (create.status === 400 && /Grok CLI \(Grok Build\)|xAI API key|No credentials/i.test(String(detail))) {
+        console.error("   Log in to Grok CLI (Grok Build), or add an xAI API key under Providers.");
       }
       return 1;
     }

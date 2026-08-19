@@ -138,6 +138,9 @@ export async function POST(request) {
         apiType: node.apiType,
         baseUrl: node.baseUrl,
         nodeName: node.name,
+        ...(node.apiType === "images"
+          ? { imageCapabilities: node.imageCapabilities || { generation: true, edit: true } }
+          : {}),
       };
     } else if (isAnthropicCompatibleProvider(provider)) {
       const node = await getProviderNodeById(provider);

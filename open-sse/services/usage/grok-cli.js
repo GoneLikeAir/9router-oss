@@ -92,7 +92,7 @@ function resolvePlan(user, config) {
 }
 
 // Display only; upstream remains authoritative for access and quota enforcement.
-function planFromAccessToken(accessToken) {
+export function planFromAccessToken(accessToken) {
   try {
     const payload = JSON.parse(Buffer.from(accessToken.split(".")[1], "base64url"));
     return {

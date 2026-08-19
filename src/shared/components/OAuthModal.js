@@ -672,7 +672,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
   const isXaiProvider = provider === "xai";
   const isKimchiProvider = provider === "kimchi";
   const deviceLoginUrl = deviceData?.verification_uri_complete || deviceData?.verification_uri || "";
-  const modalTitle = isXaiProvider ? "Connect Grok Build OAuth" : `Connect ${providerInfo.name}`;
+  const modalTitle = isXaiProvider ? "Connect xAI OAuth" : `Connect ${providerInfo.name}`;
   const manualPlaceholder = isXaiProvider
     ? "http://127.0.0.1:56121/callback?code=... or copied code"
     : isKimchiProvider
@@ -765,7 +765,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
                 progress_activity
               </span>
               <span className="text-sm">
-                {isXaiProvider ? "Waiting for Grok Build OAuth…" : "Waiting for popup authorization…"}
+                {isXaiProvider ? "Waiting for xAI OAuth…" : "Waiting for popup authorization…"}
               </span>
             </div>
 
@@ -780,7 +780,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
             <div className="space-y-4">
               <div>
                 <p className="text-sm font-medium mb-2">
-                  Step 1: Open this {isXaiProvider ? "Grok Build OAuth URL" : "URL"} in your browser
+                  Step 1: Open this {isXaiProvider ? "xAI OAuth URL" : "URL"} in your browser
                 </p>
                 <div className="flex gap-2">
                   <Input value={authData?.authUrl || ""} readOnly className="flex-1 font-mono text-xs" />

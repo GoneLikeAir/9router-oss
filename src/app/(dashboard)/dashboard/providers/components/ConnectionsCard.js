@@ -194,11 +194,12 @@ ConnectionRow.propTypes = {
 };
 
 // ── AddApiKeyModal ─────────────────────────────────────────────
-function AddApiKeyModal({ isOpen, provider, providerName, proxyPools, onSave, onClose }) {
+function AddApiKeyModal({ isOpen, provider, providerName, proxyPools, onSave, onClose, isImagesNode }) {
   const NONE = "__none__";
   const [formData, setFormData] = useState({ name: "", apiKey: "", priority: 1, proxyPoolId: NONE });
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [validationError, setValidationError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const handleValidate = async () => {
@@ -211,7 +212,8 @@ function AddApiKeyModal({ isOpen, provider, providerName, proxyPools, onSave, on
       });
       const data = await res.json();
       setValidationResult(data.valid ? "success" : "failed");
-    } catch { setValidationResult("failed"); }
+      setValidationError(data.valid ? "" : (data.error || data.error?.message || "Invalid"));
+    } catch { setValidationResult("failed"); setValidationError("Network error"); }
     finally { setValidating(false); }
   };
 
@@ -262,10 +264,21 @@ function AddApiKeyModal({ isOpen, provider, providerName, proxyPools, onSave, on
             </Button>
           </div>
         </div>
+        {(String(provider || "").startsWith("openai-compatible-images-") || isImagesNode) && (
+          <p className="text-xs text-text-muted">
+            Check calls GET /models only. It does not generate an image and will not incur image charges.
+            If this host needs a proxy, set it on the connection and try again.
+          </p>
+        )}
         {validationResult && (
-          <Badge variant={validationResult === "success" ? "success" : "error"}>
-            {validationResult === "success" ? "Valid" : "Invalid"}
-          </Badge>
+          <div className="flex flex-col gap-1">
+            <Badge variant={validationResult === "success" ? "success" : "error"}>
+              {validationResult === "success" ? "Valid" : "Invalid"}
+            </Badge>
+            {validationResult !== "success" && validationError && (
+              <span className="text-xs text-red-500">{typeof validationError === "string" ? validationError : "Invalid"}</span>
+            )}
+          </div>
         )}
         <div>
           <label className="text-xs text-text-muted mb-1 block">Priority</label>
@@ -463,6 +476,7 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
         isOpen={showAddModal}
         provider={providerId}
         proxyPools={proxyPools}
+        isImagesNode={connections.some((c) => c.providerSpecificData?.apiType === "images") || String(providerId || "").startsWith("openai-compatible-images-")}
         onSave={handleSaveApiKey}
         onClose={() => setShowAddModal(false)}
       />

@@ -641,7 +641,7 @@ async function handleAddDeviceCodeConnection(providerId) {
 // ============================================================================
 
 const CUSTOM_NODE_TYPES = ["openai-compatible", "anthropic-compatible"];
-const OPENAI_API_TYPES = ["chat", "responses"];
+const OPENAI_API_TYPES = ["chat", "responses", "images"];
 
 /**
  * Show custom providers section in main providers menu
@@ -807,7 +807,10 @@ async function handleAddCustomNode() {
   if (type === "openai-compatible") {
     const apiTypeChoices = OPENAI_API_TYPES.map((t, i) => `  ${i + 1}. ${t}`).join("\n");
     console.log(`\nAPI Type:\n${apiTypeChoices}\n`);
-    const apiTypeInput = await prompt("API Type (1/2, default 1): ");
+    const apiTypeInput = await prompt("API Type (1/2/3, default 1): ");
+    if (parseInt(apiTypeInput) === 3) {
+      console.log("Images API — appends /images/generations and /images/edits. Check only hits GET /models (no image charges).");
+    }
     const apiTypeIdx = parseInt(apiTypeInput) - 1;
     apiType = OPENAI_API_TYPES[apiTypeIdx] || "chat";
   }

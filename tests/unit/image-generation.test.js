@@ -10,6 +10,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("../../open-sse/utils/proxyFetch.js", () => ({
+  proxyAwareFetch: (...args) => globalThis.fetch(args[0], args[1]),
+  default: (...args) => globalThis.fetch(args[0], args[1]),
+}));
+
 import { handleImageGenerationCore } from "../../open-sse/handlers/imageGenerationCore.js";
 
 const originalFetch = global.fetch;
@@ -48,6 +54,7 @@ describe("handleImageGenerationCore", () => {
     expect(result.success).toBe(false);
     expect(result.status).toBe(400);
     expect(result.error).toContain("does not support image generation");
+    expect(result.reachedUpstream).not.toBe(true);
   });
 
   it("generates image with OpenAI format", async () => {
@@ -471,8 +478,8 @@ describe("handleImageGenerationCore", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(global.fetch).toHaveBeenNthCalledWith(1, "https://example.com/source.png");
-    expect(global.fetch).toHaveBeenNthCalledWith(2, "https://example.com/mask.png");
+    expect(global.fetch).toHaveBeenNthCalledWith(1, "https://example.com/source.png", expect.anything());
+    expect(global.fetch).toHaveBeenNthCalledWith(2, "https://example.com/mask.png", expect.anything());
 
     const providerCall = global.fetch.mock.calls[2];
     expect(providerCall[0]).toBe("https://api.cloudflare.com/client/v4/accounts/cf-account/ai/run/@cf/runwayml/stable-diffusion-v1-5-inpainting");

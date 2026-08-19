@@ -1,9 +1,20 @@
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
 import { HTTP_STATUS } from "../config/runtimeConfig.js";
-import { refreshWithRetry } from "../services/tokenRefresh.js";
+import { refreshWithRetry, refreshTokenByProvider } from "../services/tokenRefresh.js";
 import { getExecutor } from "../executors/index.js";
 import { getImageAdapter } from "./imageProviders/index.js";
 import { urlToBase64 } from "./imageProviders/_base.js";
+import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import { proxyOptionsFrom, proxyErrorMessage } from "../utils/proxyOptions.js";
+
+function markUpstream(result) {
+  if (result) result.reachedUpstream = true;
+  return result;
+}
+
+function imageFetch(url, init, proxyOptions) {
+  return proxyAwareFetch(url, init, proxyOptions);
+}
 
 function serializeRequestBody(requestBody) {
   if (typeof FormData !== "undefined" && requestBody instanceof FormData) return requestBody;
@@ -42,13 +53,15 @@ export async function handleImageGenerationCore({
     return createErrorResult(HTTP_STATUS.BAD_REQUEST, "Missing required field: prompt");
   }
 
-  const adapter = getImageAdapter(provider);
+  const adapter = getImageAdapter(provider, credentials);
   if (!adapter) {
     return createErrorResult(
       HTTP_STATUS.BAD_REQUEST,
       `Provider '${provider}' does not support image generation`
     );
   }
+
+  const proxyOptions = proxyOptionsFrom(credentials?.providerSpecificData || {});
 
   // Executor-delegating adapters: skip manual URL/headers/body, use the proven executor flow
   if (adapter.useExecutor && adapter.executeViaExecutor) {
@@ -63,7 +76,7 @@ export async function handleImageGenerationCore({
         const first = finalBody.data?.[0];
         let b64 = first?.b64_json;
         if (!b64 && first?.url) {
-          try { b64 = await urlToBase64(first.url); } catch {}
+          try { b64 = await urlToBase64(first.url, proxyOptions); } catch {}
         }
         if (b64) {
           const buf = Buffer.from(b64, "base64");
@@ -96,8 +109,8 @@ export async function handleImageGenerationCore({
   let requestBody;
 
   try {
-    url = adapter.buildUrl(model, credentials);
-    requestBody = await adapter.buildBody(model, body);
+    url = adapter.buildUrl(model, credentials, body);
+    requestBody = await adapter.buildBody(model, body, { credentials, proxyOptions });
     headers = adapter.buildHeaders(credentials, requestBody, model, body);
   } catch (error) {
     return createErrorResult(HTTP_STATUS.BAD_REQUEST, error.message || `Invalid ${provider} image request`);
@@ -107,18 +120,22 @@ export async function handleImageGenerationCore({
 
   let providerResponse;
   try {
-    providerResponse = await fetch(url, {
+    providerResponse = await imageFetch(url, {
       method: "POST",
       headers,
       body: serializeRequestBody(requestBody),
-    });
+    }, proxyOptions);
   } catch (error) {
+    if (proxyOptions.strictProxy) {
+      return markUpstream(createErrorResult(HTTP_STATUS.BAD_GATEWAY, proxyErrorMessage(proxyOptions, error)));
+    }
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("IMAGE", `Fetch error: ${errMsg}`);
-    return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
+    return markUpstream(createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg));
   }
 
-  // Handle 401/403 — try token refresh (skipped for noAuth providers)
+  // Auth-before-create only (same as videoCore): refresh+retry on 401/403.
+  // Do not add 5xx or network retries — a billable image may already exist.
   const executor = getExecutor(provider);
   if (
     !executor?.noAuth &&
@@ -126,11 +143,11 @@ export async function handleImageGenerationCore({
     (providerResponse.status === HTTP_STATUS.UNAUTHORIZED ||
       providerResponse.status === HTTP_STATUS.FORBIDDEN)
   ) {
-    const newCredentials = await refreshWithRetry(
-      () => executor.refreshCredentials(credentials, log),
-      3,
-      log
-    );
+    const refreshProvider = credentials?.sourceProvider || provider;
+    const refreshFn = (provider === "xai" || credentials?.sourceProvider)
+      ? () => refreshTokenByProvider(refreshProvider, credentials, log)
+      : () => executor.refreshCredentials(credentials, log);
+    const newCredentials = await refreshWithRetry(refreshFn, 3, log);
 
     if (newCredentials?.accessToken || newCredentials?.apiKey) {
       log?.info?.("TOKEN", `${provider.toUpperCase()} | refreshed for image generation`);
@@ -138,14 +155,14 @@ export async function handleImageGenerationCore({
       if (onCredentialsRefreshed) await onCredentialsRefreshed(newCredentials);
 
       try {
-        const retryBody = await adapter.buildBody(model, body);
+        const retryBody = await adapter.buildBody(model, body, { credentials, proxyOptions });
         const retryHeaders = adapter.buildHeaders(credentials, retryBody, model, body);
-        const retryUrl = adapter.buildUrl(model, credentials);
-        providerResponse = await fetch(retryUrl, {
+        const retryUrl = adapter.buildUrl(model, credentials, body);
+        providerResponse = await imageFetch(retryUrl, {
           method: "POST",
           headers: retryHeaders,
           body: serializeRequestBody(retryBody),
-        });
+        }, proxyOptions);
       } catch {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`);
       }
@@ -158,7 +175,7 @@ export async function handleImageGenerationCore({
     const { statusCode, message } = await parseUpstreamError(providerResponse);
     const errMsg = formatProviderError(new Error(message), provider, model, statusCode);
     log?.debug?.("IMAGE", `Provider error: ${errMsg}`);
-    return createErrorResult(statusCode, errMsg);
+    return markUpstream(createErrorResult(statusCode, errMsg));
   }
 
   // Parse provider response — adapter may override (codex SSE / async polling / binary)
@@ -199,7 +216,7 @@ export async function handleImageGenerationCore({
     const first = finalBody.data?.[0];
     let b64 = first?.b64_json;
     if (!b64 && first?.url) {
-      try { b64 = await urlToBase64(first.url); } catch {}
+      try { b64 = await urlToBase64(first.url, proxyOptions); } catch {}
     }
     if (b64) {
       const buf = Buffer.from(b64, "base64");

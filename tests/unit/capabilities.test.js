@@ -55,4 +55,19 @@ describe("getCapabilitiesForModel", () => {
     expect(getCapabilitiesForModel("kiro", "gpt-5.6-luna-agentic")).toMatchObject(kiroGpt56Expected);
     expect(getCapabilitiesForModel("kiro", "gpt-5.6-sol-thinking-agentic")).toMatchObject(kiroGpt56Expected);
   });
+
+  it("reports SuperGrok / Grok CLI 4.6 as a 500k reasoning model", () => {
+    const expected = {
+      vision: true,
+      reasoning: true,
+      search: true,
+      thinkingFormat: "openai",
+      contextWindow: 500000,
+      maxOutput: 64000,
+    };
+    expect(getCapabilitiesForModel("gcli", "grok-4.6")).toMatchObject(expected);
+    expect(getCapabilitiesForModel("gcli", "grok-4.6-high")).toMatchObject(expected);
+    expect(getCapabilitiesForModel("grok-cli", "grok-4.6-medium")).toMatchObject(expected);
+    expect(getCapabilitiesForModel("gcli", "grok-4.5")).toMatchObject(expected);
+  });
 });

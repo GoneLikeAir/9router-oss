@@ -108,9 +108,14 @@ export class DefaultExecutor extends BaseExecutor {
       return rt.urlSuffix ? `${rt.baseUrl}${rt.urlSuffix}` : rt.baseUrl;
     }
     if (this.provider?.startsWith?.("openai-compatible-")) {
+      const apiType = resolveOpenAICompatibleApiType(this.provider, credentials);
+      if (apiType === "images") {
+        const prefix = credentials?.providerSpecificData?.prefix || this.provider;
+        throw new Error(`Provider '${prefix}' is an images node. Use POST /v1/images/generations or /v1/images/edits.`);
+      }
       const baseUrl = credentials?.providerSpecificData?.baseUrl || OPENAI_COMPAT_BASE;
       const normalized = baseUrl.replace(/\/$/, "");
-      const path = resolveOpenAICompatibleApiType(this.provider, credentials) === "responses" ? "/responses" : "/chat/completions";
+      const path = apiType === "responses" ? "/responses" : "/chat/completions";
       return `${normalized}${path}`;
     }
     if (this.provider?.startsWith?.("anthropic-compatible-")) {

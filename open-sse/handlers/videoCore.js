@@ -2,6 +2,11 @@ import { createErrorResult } from "../utils/error.js";
 import { HTTP_STATUS } from "../config/runtimeConfig.js";
 import { refreshTokenByProvider } from "../services/tokenRefresh.js";
 import { PROVIDER_MEDIA } from "../providers/index.js";
+import {
+  GROK_CLI_CLIENT_IDENTIFIER,
+  GROK_CLI_USER_AGENT,
+  GROK_CLI_VERSION,
+} from "../config/grokCli.js";
 
 // Upstream fetch deadline for video job submission/polling (the job itself is
 // async upstream — this only bounds the HTTP round-trip, not video rendering).
@@ -35,11 +40,17 @@ function buildUpstreamUrl(config, action, requestId) {
   return requestId ? `${base}/${encodeURIComponent(requestId)}` : `${base}/${action}`;
 }
 
-function buildHeaders({ token, contentType, idempotencyKey }) {
+function buildHeaders({ token, contentType, idempotencyKey, credentials, provider }) {
   const headers = { Accept: "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (contentType) headers["Content-Type"] = contentType;
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  if (provider === "xai" && credentials?.sourceProvider === "grok-cli") {
+    headers["User-Agent"] = GROK_CLI_USER_AGENT;
+    headers["x-grok-client-version"] = GROK_CLI_VERSION;
+    headers["x-grok-client-identifier"] = GROK_CLI_CLIENT_IDENTIFIER;
+    if (credentials.connectionId) headers["x-grok-session-id"] = credentials.connectionId;
+  }
   return headers;
 }
 
@@ -101,7 +112,13 @@ export async function handleVideoProxyCore({
   const doFetch = (token) =>
     fetch(url, {
       method,
-      headers: buildHeaders({ token, contentType: method === "POST" ? contentType : null, idempotencyKey: method === "POST" ? idempotencyKey : null }),
+      headers: buildHeaders({
+        token,
+        contentType: method === "POST" ? contentType : null,
+        idempotencyKey: method === "POST" ? idempotencyKey : null,
+        credentials,
+        provider,
+      }),
       body: method === "POST" ? rawBody : undefined,
       signal: fetchSignal,
     });
@@ -124,7 +141,7 @@ export async function handleVideoProxyCore({
   ) {
     let refreshed = null;
     try {
-      refreshed = await refreshTokenByProvider(provider, credentials, log);
+      refreshed = await refreshTokenByProvider(credentials?.sourceProvider || provider, credentials, log);
     } catch (error) {
       log?.warn?.("TOKEN", `${provider} | video refresh error: ${sanitizeSecrets(error.message, credentials)}`);
     }

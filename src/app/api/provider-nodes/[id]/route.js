@@ -6,7 +6,7 @@ export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, prefix, apiType, baseUrl } = body;
+    const { name, prefix, apiType, baseUrl, imageCapabilities } = body;
     const node = await getProviderNodeById(id);
 
     if (!node) {
@@ -22,7 +22,7 @@ export async function PUT(request, { params }) {
     }
 
     // Only validate apiType for OpenAI Compatible nodes
-    if (node.type === "openai-compatible" && (!apiType || !["chat", "responses"].includes(apiType))) {
+    if (node.type === "openai-compatible" && (!apiType || !["chat", "responses", "images"].includes(apiType))) {
       return NextResponse.json({ error: "Invalid OpenAI compatible API type" }, { status: 400 });
     }
 
@@ -56,6 +56,9 @@ export async function PUT(request, { params }) {
 
     if (node.type === "openai-compatible") {
       updates.apiType = apiType;
+      if (apiType === "images") {
+        updates.imageCapabilities = imageCapabilities || node.imageCapabilities || { generation: true, edit: true };
+      }
     }
 
     const updated = await updateProviderNode(id, updates);
@@ -69,6 +72,7 @@ export async function PUT(request, { params }) {
           apiType: node.type === "openai-compatible" ? apiType : undefined,
           baseUrl: sanitizedBaseUrl,
           nodeName: updated.name,
+          ...(apiType === "images" ? { imageCapabilities: updated.imageCapabilities } : {}),
         }
       })
     )));

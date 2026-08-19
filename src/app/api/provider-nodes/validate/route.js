@@ -37,7 +37,7 @@ const getErrorMessage = (error) => {
 // Get status-specific error message for /models endpoint
 const getModelsErrorMessage = (status) => {
   if (status === 401 || status === 403) return "API key unauthorized";
-  if (status === 404) return "/models endpoint not found - try chat validation with model ID";
+  if (status === 404) return "/models endpoint not found";
   if (status >= 500) return "Server error - try again later";
   return `Unexpected response (${status})`;
 };
@@ -55,7 +55,7 @@ const getChatErrorMessage = (status) => {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { baseUrl, apiKey, type, modelId } = body;
+    const { baseUrl, apiKey, type, modelId, apiType } = body;
 
     if (!baseUrl || !apiKey) {
       return NextResponse.json({ error: "Base URL and API key required" }, { status: 400 });
@@ -169,6 +169,11 @@ export async function POST(request) {
     // Auth errors - no point trying chat fallback
     if (res.status === 401 || res.status === 403) {
       return NextResponse.json({ valid: false, error: "API key unauthorized" });
+    }
+
+    // Images nodes: GET /models only — never chat or generations (billable)
+    if (apiType === "images" || type === "openai-compatible-images") {
+      return NextResponse.json({ valid: false, error: getModelsErrorMessage(res.status) });
     }
 
     // Fallback: try chat/completions if modelId provided

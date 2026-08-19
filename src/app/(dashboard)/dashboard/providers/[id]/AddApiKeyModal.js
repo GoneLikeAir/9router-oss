@@ -8,7 +8,7 @@ import { planBulkAdd } from "@/shared/utils/bulkAdd";
 
 const BULK_PLACEHOLDER = `name1|sk-key1\nname2|sk-key2\nsk-key-only-auto-named`;
 
-export default function AddApiKeyModal({ isOpen, provider, providerName, isCompatible, isAnthropic, authType, authHint, website, proxyPools, error, existingNames, onSave, onBulkDone, onClose }) {
+export default function AddApiKeyModal({ isOpen, provider, providerName, isCompatible, isAnthropic, isImages, authType, authHint, website, proxyPools, error, existingNames, onSave, onBulkDone, onClose }) {
   const NONE_PROXY_POOL_VALUE = "__none__";
   const isOllamaLocal = provider === "ollama-local";
   const isCookie = authType === "cookie";
@@ -41,6 +41,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
   const [region, setRegion] = useState(defaultRegion);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [validationError, setValidationError] = useState("");
   const [saving, setSaving] = useState(false);
   const bulkPlaceholder = isCloudflareAi
     ? `name1|sk-key1|acc123456\nname2|sk-key2|def789012\nsk-key-only-auto-named`
@@ -83,8 +84,10 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
       });
       const data = await res.json();
       setValidationResult(data.valid ? "success" : "failed");
+      setValidationError(data.valid ? "" : String(data.error || "Invalid"));
     } catch {
       setValidationResult("failed");
+      setValidationError("Network error");
     } finally {
       setValidating(false);
     }
@@ -266,9 +269,15 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
             </div>
           </div>
         )}
+        {isImages && (
+          <p className="text-xs text-text-muted">
+            Check calls GET /models only. It does not generate an image and will not incur image charges.
+            If this host needs a proxy, set it on the connection and try again.
+          </p>
+        )}
         {isXaiApiKey && (
           <p className="text-xs text-text-muted">
-            Use a direct xAI API key from console.x.ai. This is separate from Grok Build OAuth.
+            Use a direct xAI API key from console.x.ai. This is separate from xAI OAuth.
           </p>
         )}
         {isCookie && authHint && (
@@ -306,9 +315,14 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
           </p>
         )}
         {validationResult && (
+          <div className="flex flex-col gap-1">
           <Badge variant={validationResult === "success" ? "success" : "error"}>
             {validationResult === "success" ? "Valid" : "Invalid"}
           </Badge>
+          {validationResult !== "success" && validationError && (
+            <span className="text-xs text-red-500">{validationError}</span>
+          )}
+          </div>
         )}
         {error && (
           <p className="text-xs text-red-500 break-words">{error}</p>
@@ -412,6 +426,7 @@ AddApiKeyModal.propTypes = {
   providerName: PropTypes.string,
   isCompatible: PropTypes.bool,
   isAnthropic: PropTypes.bool,
+  isImages: PropTypes.bool,
   authType: PropTypes.string,
   authHint: PropTypes.string,
   website: PropTypes.string,

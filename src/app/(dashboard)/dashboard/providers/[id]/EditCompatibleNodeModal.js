@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { Button, Badge, Input, Modal, Select } from "@/shared/components";
+import { Button, Badge, Input, Modal, Select, ConfirmModal } from "@/shared/components";
 
 export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose, isAnthropic }) {
   const [formData, setFormData] = useState({
@@ -16,6 +16,8 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
   const [checkModelId, setCheckModelId] = useState("");
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [validationError, setValidationError] = useState("");
+  const [pendingType, setPendingType] = useState(null);
 
   useEffect(() => {
     if (node) {
@@ -24,6 +26,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
         prefix: node.prefix || "",
         apiType: node.apiType || "chat",
         baseUrl: node.baseUrl || (isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"),
+        imageCapabilities: node.imageCapabilities || { generation: true, edit: true },
       });
     }
   }, [node, isAnthropic]);
@@ -31,6 +34,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
   const apiTypeOptions = [
     { value: "chat", label: "Chat Completions" },
     { value: "responses", label: "Responses API" },
+    { value: "images", label: "Images API" },
   ];
 
   const handleSubmit = async () => {
@@ -44,6 +48,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
       };
       if (!isAnthropic) {
         payload.apiType = formData.apiType;
+        if (formData.apiType === "images") payload.imageCapabilities = formData.imageCapabilities;
       }
       await onSave(payload);
     } finally {
@@ -61,13 +66,16 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           baseUrl: formData.baseUrl,
           apiKey: checkKey,
           type: isAnthropic ? "anthropic-compatible" : "openai-compatible",
-          modelId: checkModelId.trim() || undefined
+          modelId: checkModelId.trim() || undefined,
+          apiType: formData.apiType,
         }),
       });
       const data = await res.json();
       setValidationResult(data.valid ? "success" : "failed");
+      setValidationError(data.valid ? "" : String(data.error || "Invalid"));
     } catch {
       setValidationResult("failed");
+      setValidationError("Network error");
     } finally {
       setValidating(false);
     }
@@ -76,6 +84,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
   if (!node) return null;
 
   return (
+    <>
     <Modal isOpen={isOpen} title={`Edit ${isAnthropic ? "Anthropic" : "OpenAI"} Compatible`} onClose={onClose}>
       <div className="flex flex-col gap-4">
         <Input
@@ -97,7 +106,15 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
             label="API Type"
             options={apiTypeOptions}
             value={formData.apiType}
-            onChange={(e) => setFormData({ ...formData, apiType: e.target.value })}
+            onChange={(e) => {
+              const next = e.target.value;
+              const prev = formData.apiType;
+              if ((prev === "images") !== (next === "images")) {
+                setPendingType(next);
+                return;
+              }
+              setFormData({ ...formData, apiType: next });
+            }}
           />
         )}
         <Input
@@ -105,8 +122,37 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           value={formData.baseUrl}
           onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
           placeholder={isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"}
-          hint={`Use the base URL (ending in /v1) for your ${isAnthropic ? "Anthropic" : "OpenAI"}-compatible API.`}
+          hint={formData.apiType === "images"
+            ? "Stop at /v1. 9router appends /images/generations and /images/edits."
+            : `Use the base URL (ending in /v1) for your ${isAnthropic ? "Anthropic" : "OpenAI"}-compatible API.`}
         />
+        {formData.apiType === "images" && (
+          <div className="flex flex-col gap-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={formData.imageCapabilities?.generation !== false}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  imageCapabilities: { ...(formData.imageCapabilities || {}), generation: e.target.checked },
+                })}
+              />
+              Text to image
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={formData.imageCapabilities?.edit !== false}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  imageCapabilities: { ...(formData.imageCapabilities || {}), edit: e.target.checked },
+                })}
+              />
+              Image to image (edits)
+            </label>
+            <p className="text-xs text-text-muted">Check calls GET /models only. It does not generate an image and will not incur image charges.</p>
+          </div>
+        )}
         <div className="flex gap-2">
           <Input
             label="API Key (for Check)"
@@ -126,12 +172,19 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           value={checkModelId}
           onChange={(e) => setCheckModelId(e.target.value)}
           placeholder="e.g. my-model-id"
-          hint="If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."
+          hint={formData.apiType === "images"
+            ? "Optional note if /models is missing. Never used for chat or generations."
+            : "If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."}
         />
         {validationResult && (
-          <Badge variant={validationResult === "success" ? "success" : "error"}>
-            {validationResult === "success" ? "Valid" : "Invalid"}
-          </Badge>
+          <div className="flex flex-col gap-1">
+            <Badge variant={validationResult === "success" ? "success" : "error"}>
+              {validationResult === "success" ? "Valid" : "Invalid"}
+            </Badge>
+            {validationResult !== "success" && validationError && (
+              <span className="text-xs text-red-500">{validationError}</span>
+            )}
+          </div>
         )}
         <div className="flex gap-2">
           <Button onClick={handleSubmit} fullWidth disabled={!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim() || saving}>
@@ -143,6 +196,20 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
         </div>
       </div>
     </Modal>
+      <ConfirmModal
+        isOpen={!!pendingType}
+        title={pendingType === "images" ? "Switch this node to Images API?" : "Switch this node to Chat?"}
+        confirmText={pendingType === "images" ? "Switch to Images" : "Switch to Chat"}
+        message={pendingType === "images"
+          ? `After this, ${formData.prefix || "this prefix"}/* cannot be used for chat. Use /v1/images/generations or /v1/images/edits. Existing connections and the API key are kept.`
+          : "This node will leave Text to Image. Image playground and /v1/models/image will stop listing it. Connections are kept."}
+        onClose={() => setPendingType(null)}
+        onConfirm={() => {
+          if (pendingType) setFormData({ ...formData, apiType: pendingType });
+          setPendingType(null);
+        }}
+      />
+    </>
   );
 }
 

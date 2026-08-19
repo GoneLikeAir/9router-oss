@@ -40,6 +40,7 @@ export default function ProviderDetailPage() {
   const providerId = params.id;
   const { getCaps } = useModelCaps();
   const [connections, setConnections] = useState([]);
+  const [hasGrokCliLogin, setHasGrokCliLogin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [providerNode, setProviderNode] = useState(null);
   const [proxyPools, setProxyPools] = useState([]);
@@ -133,7 +134,7 @@ export default function ProviderDetailPage() {
         id: providerNode.id,
         name: providerNode.name || (providerNode.type === "anthropic-compatible" ? "Anthropic Compatible" : "OpenAI Compatible"),
         color: providerNode.type === "anthropic-compatible" ? "#D97757" : "#10A37F",
-        textIcon: providerNode.type === "anthropic-compatible" ? "AC" : "OC",
+        textIcon: (providerNode.prefix || (providerNode.type === "anthropic-compatible" ? "AC" : "OC")).slice(0, 2).toUpperCase(),
         apiType: providerNode.apiType,
         baseUrl: providerNode.baseUrl,
         type: providerNode.type,
@@ -154,7 +155,7 @@ export default function ProviderDetailPage() {
   const isCompatible = isOpenAICompatible || isAnthropicCompatible;
   const hasDualAuthModes = !isCompatible && isOAuth && supportsApiKeyAuth;
   const oauthConnectionLabel =
-    providerId === "xai" ? "Grok Build OAuth"
+    providerId === "xai" ? "xAI OAuth"
     : providerId === "grok-cli" ? "Grok CLI Device Login"
     : providerId === "kimi" ? "Kimi Coding OAuth"
     : "OAuth";
@@ -303,8 +304,10 @@ export default function ProviderDetailPage() {
       const proxyPoolsData = await proxyPoolsRes.json();
       const settingsData = settingsRes.ok ? await settingsRes.json() : {};
       if (connectionsRes.ok) {
-        const filtered = (connectionsData.connections || []).filter(c => c.provider === providerId);
+        const all = connectionsData.connections || [];
+        const filtered = all.filter(c => c.provider === providerId);
         setConnections(filtered);
+        setHasGrokCliLogin(all.some((c) => c.provider === "grok-cli" && c.isActive !== false && c.authType === "oauth"));
       }
       if (proxyPoolsRes.ok) {
         setProxyPools(proxyPoolsData.proxyPools || []);
@@ -1082,10 +1085,11 @@ export default function ProviderDetailPage() {
           onCopy={copy}
           onSetAlias={handleSetAlias}
           onDeleteAlias={handleDeleteAlias}
-          onAddCustomModel={(modelId) => handleAddCustomModel(modelId, "llm", providerStorageAlias)}
-          onDeleteCustomModel={(modelId) => handleDeleteCustomModel(modelId, "llm", providerStorageAlias)}
+          onAddCustomModel={(modelId) => handleAddCustomModel(modelId, providerNode?.apiType === "images" ? "image" : "llm", providerStorageAlias)}
+          onDeleteCustomModel={(modelId) => handleDeleteCustomModel(modelId, providerNode?.apiType === "images" ? "image" : "llm", providerStorageAlias)}
           connections={connections}
           isAnthropic={isAnthropicCompatible}
+          apiType={providerNode?.apiType}
         />
       );
     }
@@ -1264,6 +1268,7 @@ export default function ProviderDetailPage() {
   // Determine icon path: OpenAI Compatible providers use specialized icons
   const getHeaderIconPath = () => {
     if (isOpenAICompatible && providerInfo.apiType) {
+      if (providerInfo.apiType === "images") return null;
       return providerInfo.apiType === "responses" ? "/providers/oai-r.png" : "/providers/oai-cc.png";
     }
     if (isAnthropicCompatible) {
@@ -1338,6 +1343,15 @@ export default function ProviderDetailPage() {
         </div>
       )}
 
+      {providerId === "xai" && hasGrokCliLogin && (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2">
+          <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">info</span>
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-blue-600 dark:text-blue-400">
+            Image and video generation already use your Grok CLI (Grok Build) login. Connect here only if you need an xAI API key or xAI OAuth for chat on api.x.ai.
+          </p>
+        </div>
+      )}
+
       {providerInfo.notice?.text && !providerInfo.deprecated && (
         <div className="flex flex-col gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 sm:flex-row sm:items-center">
           <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">info</span>
@@ -1361,9 +1375,24 @@ export default function ProviderDetailPage() {
             <div className="min-w-0">
               <h2 className="text-lg font-semibold">{isAnthropicCompatible ? "Anthropic Compatible Details" : "OpenAI Compatible Details"}</h2>
               <p className="break-all text-sm text-text-muted">
-                {isAnthropicCompatible ? "Messages API" : (providerNode.apiType === "responses" ? "Responses API" : "Chat Completions")} · {(providerNode.baseUrl || "").replace(/\/$/, "")}/
-                {isAnthropicCompatible ? "messages" : (providerNode.apiType === "responses" ? "responses" : "chat/completions")}
+                {isAnthropicCompatible
+                  ? "Messages API"
+                  : providerNode.apiType === "images"
+                    ? "Images API"
+                    : (providerNode.apiType === "responses" ? "Responses API" : "Chat Completions")}
+                {" · "}
+                {(providerNode.baseUrl || "").replace(/\/$/, "")}/
+                {isAnthropicCompatible
+                  ? "messages"
+                  : providerNode.apiType === "images"
+                    ? "images/generations · /images/edits"
+                    : (providerNode.apiType === "responses" ? "responses" : "chat/completions")}
               </p>
+              {providerNode.apiType === "images" && (
+                <Link href={`/dashboard/media-providers/image/${providerNode.id}`} className="mt-2 inline-block text-sm text-primary hover:underline">
+                  Try in Text to Image →
+                </Link>
+              )}
             </div>
             <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
               <Button
@@ -1728,6 +1757,7 @@ export default function ProviderDetailPage() {
         providerName={providerInfo.name}
         isCompatible={isCompatible}
         isAnthropic={isAnthropicCompatible}
+        isImages={providerNode?.apiType === "images"}
         authType={providerInfo?.authType}
         authHint={providerInfo?.authHint}
         website={providerInfo?.website}

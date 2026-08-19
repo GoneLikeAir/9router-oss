@@ -22,6 +22,9 @@ import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
+import { getProviderNodeById } from "@/models";
+import { isOpenAICompatibleProvider } from "@/shared/constants/providers";
+import { resolveOpenAICompatibleApiType, imagesNodeChatMessage } from "open-sse/services/provider.js";
 
 /**
  * Handle chat completion request
@@ -213,6 +216,17 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   }
 
   const { provider, model } = modelInfo;
+
+  if (isOpenAICompatibleProvider(provider)) {
+    const node = await getProviderNodeById(provider);
+    const apiType = resolveOpenAICompatibleApiType(provider, {
+      providerSpecificData: node || {},
+    });
+    if (apiType === "images") {
+      const prefix = node?.prefix || provider;
+      return errorResponse(HTTP_STATUS.BAD_REQUEST, imagesNodeChatMessage(prefix));
+    }
+  }
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 

@@ -226,7 +226,7 @@ describe("run (against a mock gateway)", () => {
 
     expect(code).toBe(1);
     expect(errors.join("\n")).toContain("No credentials");
-    expect(errors.join("\n")).toContain("Connect an xAI account");
+    expect(errors.join("\n")).toContain("Log in to Grok CLI (Grok Build)");
   });
 });
 

@@ -104,9 +104,10 @@ export async function POST(request) {
           return NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
         }
         const modelsUrl = `${node.baseUrl?.replace(/\/$/, "")}/models`;
-        const res = await fetch(modelsUrl, {
+        const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
+        const res = await proxyAwareFetch(modelsUrl, {
           headers: { "Authorization": `Bearer ${apiKey}` },
-        });
+        }, null);
         isValid = res.ok;
         return NextResponse.json({
           valid: isValid,

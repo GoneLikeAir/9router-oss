@@ -7,7 +7,7 @@ description: Generate videos via 9Router /v1/videos/generations using xAI Grok I
 
 Requires `NINEROUTER_URL` (and `NINEROUTER_KEY` if auth enabled). See https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router/SKILL.md for setup.
 
-Requires a connected **xAI account** in the 9Router dashboard — either **Grok Build OAuth** (SuperGrok / X Premium+ subscription sign-in) or a direct **xAI API key** from console.x.ai. The two are separate auth types with separate billing; the dashboard shows which one each connection uses.
+Requires **either** a **Grok CLI (Grok Build)** login (device-code under Providers → Grok CLI) **or** an **xAI API key** / **xAI OAuth** on the xAI provider page. Grok CLI device login and xAI OAuth are not the same thing. The subscription login is reused for Imagine video; you do not need to sign in again on the xAI page. Whether a given Grok Build plan includes video is decided by xAI — a `403` means upgrade or use a console.x.ai API key.
 
 ## Endpoints (async job flow)
 

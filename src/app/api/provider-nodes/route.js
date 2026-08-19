@@ -46,17 +46,22 @@ export async function POST(request) {
     const nodeType = type || "openai-compatible";
 
     if (nodeType === "openai-compatible") {
-      if (!apiType || !["chat", "responses"].includes(apiType)) {
+      if (!apiType || !["chat", "responses", "images"].includes(apiType)) {
         return NextResponse.json({ error: "Invalid OpenAI compatible API type" }, { status: 400 });
       }
+
+      const imageCapabilities = apiType === "images"
+        ? (body.imageCapabilities || { generation: true, edit: true })
+        : undefined;
 
       const node = await createProviderNode({
         id: `${OPENAI_COMPATIBLE_PREFIX}${apiType}-${generateId()}`,
         type: "openai-compatible",
         prefix: prefix.trim(),
         apiType,
-        baseUrl: (baseUrl || OPENAI_COMPATIBLE_DEFAULTS.baseUrl).trim(),
+        baseUrl: (baseUrl || (apiType === "images" ? "" : OPENAI_COMPATIBLE_DEFAULTS.baseUrl)).trim(),
         name: name.trim(),
+        ...(imageCapabilities ? { imageCapabilities } : {}),
       });
       return NextResponse.json({ node }, { status: 201 });
     }

@@ -71,7 +71,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
   );
 }
 
-export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, connections, isAnthropic }) {
+export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, connections, isAnthropic, apiType }) {
   const [newModel, setNewModel] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -85,7 +85,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
       const res = await fetch("/api/models/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: `${providerStorageAlias}/${modelId}` }),
+        body: JSON.stringify({ model: `${providerStorageAlias}/${modelId}`, ...(apiType === "images" ? { kind: "image" } : {}) }),
       });
       const data = await res.json();
       setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
@@ -100,7 +100,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
     customModels,
     modelAliases,
     providerAlias: providerStorageAlias,
-    type: "llm",
+    type: apiType === "images" ? "image" : "llm",
   });
 
   const handleAdd = async () => {
@@ -163,7 +163,9 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-text-muted">
-        Add {isAnthropic ? "Anthropic" : "OpenAI"}-compatible models manually or import them from the /models endpoint.
+        {apiType === "images"
+          ? "These ids are used as {prefix}/{id} on /v1/images/*."
+          : `Add ${isAnthropic ? "Anthropic" : "OpenAI"}-compatible models manually or import them from the /models endpoint.`}
       </p>
 
       <div className="flex items-end gap-2 flex-wrap">
@@ -175,7 +177,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder={isAnthropic ? "claude-3-opus-20240229" : "gpt-4o"}
+            placeholder={apiType === "images" ? "gpt-image-2" : isAnthropic ? "claude-3-opus-20240229" : "gpt-4o"}
             className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
           />
         </div>
@@ -229,4 +231,5 @@ CompatibleModelsSection.propTypes = {
     isActive: PropTypes.bool,
   })).isRequired,
   isAnthropic: PropTypes.bool,
+  apiType: PropTypes.string,
 };

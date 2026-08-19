@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import PropTypes from "prop-types";
 import {
   Card,
@@ -96,6 +97,7 @@ function getConnectionErrorTag(connection) {
 const APIKEY_INITIAL_VISIBLE = 20;
 
 export default function ProvidersPage() {
+  const router = useRouter();
   const [connections, setConnections] = useState([]);
   const [providerNodes, setProviderNodes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -610,6 +612,7 @@ export default function ProvidersPage() {
         onCreated={(node) => {
           setProviderNodes((prev) => [...prev, node]);
           setShowAddCompatibleModal(false);
+          if (node?.id) router.push(`/dashboard/providers/${node.id}`);
         }}
       />
       <AddCompatibleModal
@@ -790,10 +793,12 @@ function ApiKeyProviderCard({
   };
 
   const getIconPath = () => {
-    if (isCompatible && provider.apiType)
+    if (isCompatible && provider.apiType) {
+      if (provider.apiType === "images") return null;
       return provider.apiType === "responses"
         ? "/providers/oai-r.png"
         : "/providers/oai-cc.png";
+    }
     if (isAnthropicCompatible) return "/providers/anthropic-m.png";
     return getProviderIconSrc(provider.id);
   };
@@ -840,9 +845,11 @@ function ApiKeyProviderCard({
                     {getStatusDisplay(connected, error, errorCode)}
                     {isCompatible && (
                       <Badge variant="default" size="sm">
-                        {provider.apiType === "responses"
-                          ? "Responses"
-                          : "Chat"}
+                        {provider.apiType === "images"
+                          ? "Images"
+                          : provider.apiType === "responses"
+                            ? "Responses"
+                            : "Chat"}
                       </Badge>
                     )}
                     {isAnthropicCompatible && (

@@ -11,6 +11,8 @@ import { handleVideoProxyCore, getVideoConfig, sanitizeSecrets } from "open-sse/
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
+import { resolveXaiMediaCredentials, videoLockModel } from "../services/xaiMediaCredentials.js";
+import { mapXaiMediaErrorMessage, rewriteXaiMediaErrorResponse, XAI_MEDIA_ERRORS } from "../services/xaiMediaErrors.js";
 import * as log from "../utils/logger.js";
 
 // Video generation is xAI-only today; requests without a provider prefix
@@ -23,8 +25,20 @@ const DEFAULT_VIDEO_PROVIDER = "xai";
 const CREATE_ROTATION_STATUSES = new Set([
   HTTP_STATUS.UNAUTHORIZED,
   HTTP_STATUS.FORBIDDEN,
+  HTTP_STATUS.PAYMENT_REQUIRED,
   HTTP_STATUS.RATE_LIMITED,
 ]);
+
+async function resolveVideoCredentials(provider, excludeConnectionIds, model, preferredConnectionId) {
+  if (provider === "xai") {
+    return resolveXaiMediaCredentials("video", { excludeConnectionIds, model, preferredConnectionId });
+  }
+  return getProviderCredentials(provider, excludeConnectionIds, model, { preferredConnectionId });
+}
+
+function noVideoCredentialsMessage(provider) {
+  return provider === "xai" ? XAI_MEDIA_ERRORS.NO_CREDENTIALS : `No credentials for provider: ${provider}`;
+}
 
 async function requireValidApiKey(request) {
   const apiKey = extractApiKey(request);
@@ -115,9 +129,10 @@ export async function handleVideoCreate(request, action) {
   const excludeConnectionIds = new Set();
   let lastError = null;
   let lastStatus = null;
+  const lockModel = videoLockModel(model);
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { preferredConnectionId });
+    const credentials = await resolveVideoCredentials(provider, excludeConnectionIds, lockModel, preferredConnectionId);
 
     if (!credentials || credentials.allRateLimited) {
       if (credentials?.allRateLimited) {
@@ -126,12 +141,13 @@ export async function handleVideoCreate(request, action) {
         return unavailableResponse(status, `[${provider}/${model || "video"}] ${errorMsg}`, credentials.retryAfter, credentials.retryAfterHuman);
       }
       if (excludeConnectionIds.size === 0) {
-        return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
+        return errorResponse(HTTP_STATUS.BAD_REQUEST, noVideoCredentialsMessage(provider));
       }
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
     }
 
-    const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    const refreshProvider = credentials.sourceProvider || provider;
+    const refreshedCredentials = await checkAndRefreshToken(refreshProvider, credentials);
 
     const result = await handleVideoProxyCore({
       provider,
@@ -153,24 +169,36 @@ export async function handleVideoCreate(request, action) {
     });
 
     if (result.success) {
-      await clearAccountError(credentials.connectionId, credentials, model);
+      await clearAccountError(credentials.connectionId, credentials, lockModel);
       log.info("VIDEO", `${provider.toUpperCase()} | ${action} accepted (connection ${credentials.connectionId})`);
       return withConnectionHeader(result.response, credentials.connectionId);
     }
 
     // Record the failure (dashboard shows lastError/errorCode → user sees re-auth is needed)
     const { shouldFallback } = await markAccountUnavailable(
-      credentials.connectionId, result.status, sanitizeSecrets(result.error, refreshedCredentials), provider, model
+      credentials.connectionId, result.status, sanitizeSecrets(result.error, refreshedCredentials), refreshProvider, lockModel
     );
+
+    const mapped = provider === "xai"
+      ? mapXaiMediaErrorMessage({
+          status: result.status,
+          sourceProvider: refreshProvider,
+          authType: credentials.authType,
+        })
+      : null;
+    const publicError = mapped || result.error;
 
     if (shouldFallback && CREATE_ROTATION_STATUSES.has(result.status)) {
       excludeConnectionIds.add(credentials.connectionId);
-      lastError = result.error;
+      lastError = publicError;
       lastStatus = result.status;
       continue;
     }
 
-    return result.response;
+    const response = provider === "xai"
+      ? rewriteXaiMediaErrorResponse(result, credentials)
+      : result.response;
+    return withConnectionHeader(response, credentials.connectionId);
   }
 }
 
@@ -187,13 +215,23 @@ export async function handleVideoGet(request, requestId) {
 
   const provider = DEFAULT_VIDEO_PROVIDER;
   const preferredConnectionId = request.headers.get("x-connection-id") || null;
+  const lockModel = videoLockModel(null);
 
-  const credentials = await getProviderCredentials(provider, null, null, { preferredConnectionId });
+  const credentials = await resolveVideoCredentials(provider, null, lockModel, preferredConnectionId);
   if (!credentials || credentials.allRateLimited) {
-    return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
+    if (credentials?.allRateLimited) {
+      return unavailableResponse(
+        Number(credentials.lastErrorCode) || HTTP_STATUS.SERVICE_UNAVAILABLE,
+        `[${provider}/video] ${credentials.lastError || "Unavailable"}`,
+        credentials.retryAfter,
+        credentials.retryAfterHuman
+      );
+    }
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, noVideoCredentialsMessage(provider));
   }
 
-  const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+  const refreshProvider = credentials.sourceProvider || provider;
+  const refreshedCredentials = await checkAndRefreshToken(refreshProvider, credentials);
 
   const result = await handleVideoProxyCore({
     provider,
@@ -212,12 +250,13 @@ export async function handleVideoGet(request, requestId) {
   });
 
   if (result.success) {
-    await clearAccountError(credentials.connectionId, credentials, null);
+    await clearAccountError(credentials.connectionId, credentials, lockModel);
     return withConnectionHeader(result.response, credentials.connectionId);
   }
 
   await markAccountUnavailable(
-    credentials.connectionId, result.status, sanitizeSecrets(result.error, refreshedCredentials), provider, null
+    credentials.connectionId, result.status, sanitizeSecrets(result.error, refreshedCredentials), refreshProvider, lockModel
   );
-  return result.response;
+  const response = rewriteXaiMediaErrorResponse(result, credentials);
+  return withConnectionHeader(response, credentials.connectionId);
 }

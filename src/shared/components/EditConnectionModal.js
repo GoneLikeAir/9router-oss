@@ -27,6 +27,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const [testResult, setTestResult] = useState(null);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [validationError, setValidationError] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -106,8 +107,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       });
       const data = await res.json();
       setValidationResult(data.valid ? "success" : "failed");
+      setValidationError(data.valid ? "" : String(data.error || "Invalid"));
     } catch {
       setValidationResult("failed");
+      setValidationError("Network error");
     } finally {
       setValidating(false);
     }
@@ -220,10 +223,21 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
                 </Button>
               </div>
             </div>
+            {(connection?.providerSpecificData?.apiType === "images" || String(connection?.provider || "").startsWith("openai-compatible-images-")) && (
+              <p className="text-xs text-text-muted">
+                Check calls GET /models only. It does not generate an image and will not incur image charges.
+                If this host needs a proxy, set it on the connection and try again.
+              </p>
+            )}
             {validationResult && (
-              <Badge variant={validationResult === "success" ? "success" : "error"}>
-                {validationResult === "success" ? "Valid" : "Invalid"}
-              </Badge>
+              <div className="flex flex-col gap-1">
+                <Badge variant={validationResult === "success" ? "success" : "error"}>
+                  {validationResult === "success" ? "Valid" : "Invalid"}
+                </Badge>
+                {validationResult !== "success" && validationError && (
+                  <span className="text-xs text-red-500">{validationError}</span>
+                )}
+              </div>
             )}
           </>
         )}

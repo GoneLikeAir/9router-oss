@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button } from "@/shared/components";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { isAnthropicCompatibleProvider, isOpenAICompatibleProvider } from "@/shared/constants/providers";
+import { isOpenAICompatibleImagesProvider } from "@/shared/constants/compatibleNodes";
 
 const STORAGE_KEYS = {
   sessions: "basic-chat.sessions",
@@ -221,7 +222,12 @@ export default function BasicChatPageClient() {
         const providersRes = await fetch("/api/providers", { cache: "no-store" });
         const providersData = await providersRes.json().catch(() => ({}));
         const connections = Array.isArray(providersData.connections)
-          ? providersData.connections.filter((connection) => connection?.isActive !== false)
+          ? providersData.connections.filter((connection) => {
+            if (connection?.isActive === false) return false;
+            if (connection?.providerSpecificData?.apiType === "images") return false;
+            if (isOpenAICompatibleImagesProvider(connection.provider, connection)) return false;
+            return true;
+          })
           : [];
 
         if (connections.length === 0) {

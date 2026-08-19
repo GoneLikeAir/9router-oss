@@ -30,7 +30,7 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
               </span>
             </button>
             <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
-              {isTesting ? "Testing..." : "Test"}
+              {isTesting ? "Testing..." : "Check that this id is listed. Does not generate an image."}
             </span>
           </div>
         )}
@@ -43,6 +43,9 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
           </span>
         </div>
         {isFree && <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">FREE</span>}
+        {Array.isArray(model.capabilities) && model.capabilities.includes("edit") && (
+          <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">edit</span>
+        )}
         {isCustom && (
           <button onClick={onDeleteAlias} className="p-0.5 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity ml-auto" title="Remove custom model">
             <span className="material-symbols-outlined text-sm">close</span>
@@ -116,6 +119,9 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const [testingModelId, setTestingModelId] = useState(null);
   const [testError, setTestError] = useState("");
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
+  const [liveImageModels, setLiveImageModels] = useState([]);
+  const [liveImageError, setLiveImageError] = useState("");
+  const [liveImageLoading, setLiveImageLoading] = useState(false);
 
   const providerAlias = providerAliasOverride || getProviderAlias(providerId);
   const effectiveType = kindFilter || "llm";
@@ -134,6 +140,37 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    if (kindFilter !== "image" || !providerAliasOverride) return;
+    let cancelled = false;
+    setLiveImageLoading(true);
+    fetch("/api/v1/models/image", { cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error?.message || d.error || `HTTP ${r.status}`);
+        return d;
+      })
+      .then((d) => {
+        if (cancelled) return;
+        const models = (d.data || [])
+          .filter((m) => m.owned_by === providerAliasOverride || String(m.id || "").startsWith(`${providerAliasOverride}/`))
+          .map((m) => {
+            const id = String(m.id);
+            return { id: id.startsWith(`${providerAliasOverride}/`) ? id.slice(providerAliasOverride.length + 1) : id };
+          });
+        setLiveImageModels(models);
+        setLiveImageError("");
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setLiveImageModels([]);
+          setLiveImageError(err.message || "Could not list models");
+        }
+      })
+      .finally(() => { if (!cancelled) setLiveImageLoading(false); });
+    return () => { cancelled = true; };
+  }, [kindFilter, providerAliasOverride]);
 
   const handleSetAlias = async (modelId, alias) => {
     const fullModel = `${providerAlias}/${modelId}`;
@@ -213,7 +250,9 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
       && !builtInModels.some((b) => b.id === m.id)
   );
 
-  const displayModels = builtInModels;
+  const displayModels = kindFilter === "image" && providerAliasOverride
+    ? liveImageModels
+    : builtInModels;
 
   return (
     <>
@@ -222,6 +261,39 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
           <h2 className="text-lg font-semibold">Models{kindFilter ? ` — ${kindFilter.toUpperCase()}` : ""}</h2>
         </div>
         {testError && <p className="text-xs text-red-500 mb-3 break-words">{testError}</p>}
+        {liveImageLoading && <p className="text-xs text-text-muted mb-3">Loading models…</p>}
+        {liveImageError && (
+          <div className="flex items-center gap-2 mb-3">
+            <p className="text-xs text-red-500 break-words">
+              {/401|sign in/i.test(liveImageError) ? "Sign in again" : `Could not list models: ${liveImageError}. You can still add an id.`}
+            </p>
+            <button type="button" className="text-xs text-primary hover:underline" onClick={() => {
+              setLiveImageError("");
+              setLiveImageLoading(true);
+              fetch("/api/v1/models/image", { cache: "no-store" })
+                .then(async (r) => {
+                  const d = await r.json().catch(() => ({}));
+                  if (!r.ok) throw new Error(d.error?.message || d.error || `HTTP ${r.status}`);
+                  return d;
+                })
+                .then((d) => {
+                  const models = (d.data || [])
+                    .filter((m) => m.owned_by === providerAliasOverride || String(m.id || "").startsWith(`${providerAliasOverride}/`))
+                    .map((m) => {
+                      const id = String(m.id);
+                      return { id: id.startsWith(`${providerAliasOverride}/`) ? id.slice(providerAliasOverride.length + 1) : id };
+                    });
+                  setLiveImageModels(models);
+                  setLiveImageError("");
+                })
+                .catch((err) => setLiveImageError(err.message || "Could not list models"))
+                .finally(() => setLiveImageLoading(false));
+            }}>Retry</button>
+          </div>
+        )}
+        {!liveImageLoading && !liveImageError && kindFilter === "image" && providerAliasOverride && displayModels.length === 0 && myCustomModels.length === 0 && (
+          <p className="text-xs text-text-muted mb-3">No models listed. Add one or type an id in the playground.</p>
+        )}
 
         <div className="flex flex-wrap gap-3">
           {displayModels.map((model) => {

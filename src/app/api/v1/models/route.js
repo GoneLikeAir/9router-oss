@@ -18,6 +18,12 @@ import { resolveZedModels } from "open-sse/shared/zedAuth.js";
 import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { capabilitiesFromServiceKind, getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
+import { proxyOptionsFrom } from "open-sse/utils/proxyOptions.js";
+import {
+  compatibleNodeServiceKinds,
+  resolveCompatibleApiType,
+} from "@/shared/constants/compatibleNodes";
 
 // Per-provider live model resolvers. Each receives a connection record and
 // returns { models: [{ id, name? }, ...] } | null on failure.
@@ -194,13 +200,14 @@ async function fetchCompatibleModelIds(connection) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    const response = await fetch(url, {
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const psd = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+    const response = await proxyAwareFetch(url, {
       method: "GET",
       headers: { ...headers, [INTERNAL_MODELS_FETCH_HEADER]: "1" },
       cache: "no-store",
       signal: controller.signal,
-    });
+    }, proxyOptionsFrom(psd));
     clearTimeout(timeoutId);
 
     if (!response.ok) return [];
@@ -222,7 +229,12 @@ async function fetchCompatibleModelIds(connection) {
 
 // Provider matches kindFilter when its serviceKinds intersect the requested kinds.
 // LLM is the default kind for providers missing serviceKinds.
-function providerMatchesKinds(providerId, kindFilter) {
+function providerMatchesKinds(providerId, kindFilter, conn = null) {
+  if (isOpenAICompatibleProvider(providerId)) {
+    const apiType = resolveCompatibleApiType(providerId, conn);
+    const kinds = compatibleNodeServiceKinds(apiType);
+    return kindFilter.some((k) => kinds.includes(k));
+  }
   const provider = AI_PROVIDERS[providerId];
   const kinds = Array.isArray(provider?.serviceKinds) && provider.serviceKinds.length > 0
     ? provider.serviceKinds
@@ -313,7 +325,7 @@ export async function buildModelsList(kindFilter, options = {}) {
     );
     for (const [alias, providerModels] of Object.entries(PROVIDER_MODELS)) {
       const providerId = aliasToProviderId[alias] || alias;
-      if (!providerMatchesKinds(providerId, kindFilter)) continue;
+      if (!providerMatchesKinds(providerId, kindFilter, null)) continue;
       for (const model of providerModels) {
         if (!kindFilter.includes(modelKind(model))) continue;
         if (isDisabled(alias, model.id)) continue;
@@ -343,7 +355,7 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   } else {
     for (const [providerId, conn] of activeConnectionByProvider.entries()) {
-      if (!providerMatchesKinds(providerId, kindFilter)) continue;
+      if (!providerMatchesKinds(providerId, kindFilter, conn)) continue;
 
       const staticAlias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
       const outputAlias = (
@@ -462,11 +474,16 @@ export async function buildModelsList(kindFilter, options = {}) {
 
       const mergedModelIds = Array.from(new Set([...modelIds, ...customModelIds, ...aliasModelIds]));
 
+      const nodeApiType = isCompatibleProvider ? resolveCompatibleApiType(providerId, conn) : null;
+
       for (const modelId of mergedModelIds) {
         // Resolve kind: prefer custom/live metadata, then static, then ID heuristics.
+        // Images nodes: every id is an image model (catalog rule — do not drop gpt-5.4-style names).
         const customKind = customModelKindById.get(modelId);
         const liveKind = liveModelKindById.get(modelId);
-        const kind = customKind || liveKind || staticModelKindById.get(modelId) || inferKindFromUnknownModelId(modelId);
+        const kind = nodeApiType === "images"
+          ? "image"
+          : (customKind || liveKind || staticModelKindById.get(modelId) || inferKindFromUnknownModelId(modelId));
         // imageToText custom models stay in the LLM list (vision-capable chat models)
         const allowAsLlm = kind === "imageToText" && kindFilter.includes(LLM_KIND);
         if (!kindFilter.includes(kind) && !allowAsLlm) continue;

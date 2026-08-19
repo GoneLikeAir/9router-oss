@@ -32,38 +32,57 @@ const VARIANT_CONFIG = {
 const API_TYPE_OPTIONS = [
   { value: "chat", label: "Chat Completions" },
   { value: "responses", label: "Responses API" },
+  { value: "images", label: "Images API" },
 ];
 
-function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
+const CHAT_DEFAULT_URL = "https://api.openai.com/v1";
+
+function AddCompatibleModal({ variant, isOpen, onClose, onCreated, initialApiType }) {
   const config = VARIANT_CONFIG[variant];
-  const initialFormData = () => ({
-    name: "",
-    prefix: "",
-    ...(config.hasApiType ? { apiType: "chat" } : {}),
-    baseUrl: config.defaultBaseUrl,
-  });
+  const initialFormData = () => {
+    const apiType = config.hasApiType ? (initialApiType || "chat") : undefined;
+    return {
+      name: "",
+      prefix: "",
+      ...(config.hasApiType ? { apiType } : {}),
+      baseUrl: apiType === "images" ? "" : config.defaultBaseUrl,
+      imageCapabilities: { generation: true, edit: true },
+    };
+  };
 
   const [formData, setFormData] = useState(initialFormData);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [checkKey, setCheckKey] = useState("");
   const [checkModelId, setCheckModelId] = useState("");
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
 
-  // openai: reset baseUrl when apiType changes; anthropic: reset checks when opened
   useEffect(() => {
-    if (config.hasApiType) {
-      setFormData((prev) => ({ ...prev, baseUrl: config.defaultBaseUrl }));
-    } else if (isOpen) {
-      setValidationResult(null);
-      setCheckKey("");
-      setCheckModelId("");
-    }
-  }, [config.hasApiType ? formData.apiType : isOpen]);
+    if (!isOpen) return;
+    setFormData(initialFormData());
+    setValidationResult(null);
+    setCheckKey("");
+    setCheckModelId("");
+    setSubmitError("");
+  }, [isOpen, initialApiType, variant]);
+
+  const isImages = config.hasApiType && formData.apiType === "images";
+
+  const handleApiTypeChange = (nextType) => {
+    setFormData((prev) => {
+      const next = { ...prev, apiType: nextType };
+      if (nextType === "images" && (!prev.baseUrl || prev.baseUrl === CHAT_DEFAULT_URL)) {
+        next.baseUrl = "";
+      }
+      return next;
+    });
+  };
 
   const handleSubmit = async () => {
     if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
     setSubmitting(true);
+    setSubmitError("");
     try {
       const res = await fetch("/api/provider-nodes", {
         method: "POST",
@@ -74,6 +93,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           ...(config.hasApiType ? { apiType: formData.apiType } : {}),
           baseUrl: formData.baseUrl,
           type: config.type,
+          ...(isImages ? { imageCapabilities: formData.imageCapabilities } : {}),
         }),
       });
       const data = await res.json();
@@ -82,9 +102,11 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
         setFormData(initialFormData());
         setCheckKey("");
         setValidationResult(null);
+      } else {
+        setSubmitError(data.error || `Failed to create ${config.errorLabel} node`);
       }
     } catch (error) {
-      console.log(`Error creating ${config.errorLabel} node:`, error);
+      setSubmitError(error.message || "Network error");
     } finally {
       setSubmitting(false);
     }
@@ -101,6 +123,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           apiKey: checkKey,
           type: config.type,
           modelId: checkModelId.trim() || undefined,
+          ...(config.hasApiType ? { apiType: formData.apiType } : {}),
         }),
       });
       const data = await res.json();
@@ -148,23 +171,50 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           value={formData.prefix}
           onChange={(e) => setFormData({ ...formData, prefix: e.target.value })}
           placeholder={config.prefixPlaceholder}
-          hint="Required. Used as the provider prefix for model IDs."
+          hint={isImages ? "Model ids look like {prefix}/gpt-image-2." : "Required. Used as the provider prefix for model IDs."}
         />
         {config.hasApiType && (
           <Select
             label="API Type"
             options={API_TYPE_OPTIONS}
             value={formData.apiType}
-            onChange={(e) => setFormData({ ...formData, apiType: e.target.value })}
+            onChange={(e) => handleApiTypeChange(e.target.value)}
+            hint={isImages ? "Use this for OpenAI-compatible image hosts (generations + edits). This prefix cannot be used for chat." : undefined}
           />
         )}
         <Input
           label="Base URL"
           value={formData.baseUrl}
           onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
-          placeholder={config.defaultBaseUrl}
-          hint={config.baseUrlHint}
+          placeholder={isImages ? "https://api.example.com/v1" : config.defaultBaseUrl}
+          hint={isImages ? "Stop at /v1. 9router appends /images/generations and /images/edits." : config.baseUrlHint}
         />
+        {isImages && (
+          <div className="flex flex-col gap-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={formData.imageCapabilities?.generation !== false}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  imageCapabilities: { ...formData.imageCapabilities, generation: e.target.checked },
+                })}
+              />
+              Text to image
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={formData.imageCapabilities?.edit !== false}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  imageCapabilities: { ...formData.imageCapabilities, edit: e.target.checked },
+                })}
+              />
+              Image to image (edits)
+            </label>
+          </div>
+        )}
         <Input
           label="API Key (for Check)"
           type="password"
@@ -176,7 +226,9 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           value={checkModelId}
           onChange={(e) => setCheckModelId(e.target.value)}
           placeholder={config.modelIdPlaceholder}
-          hint="If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."
+          hint={isImages
+            ? "Optional note if /models is missing. Never used for chat or generations."
+            : "If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."}
         />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Button
@@ -189,6 +241,17 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           </Button>
           {renderValidationResult()}
         </div>
+        {isImages && (
+          <p className="text-xs text-text-muted">
+            Check calls GET {"{base}"}/models only. It does not generate an image and will not incur image charges.
+          </p>
+        )}
+        {validationResult && !validationResult.valid && isImages && (
+          <p className="text-xs text-text-muted">
+            Check did not pass. You can still create; add a connection proxy if the host is not reachable directly.
+          </p>
+        )}
+        {submitError && <p className="text-sm text-red-500">{submitError}</p>}
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button
             onClick={handleSubmit}
@@ -216,6 +279,7 @@ AddCompatibleModal.propTypes = {
   isOpen: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onCreated: PropTypes.func.isRequired,
+  initialApiType: PropTypes.oneOf(["chat", "responses", "images"]),
 };
 
 export default AddCompatibleModal;

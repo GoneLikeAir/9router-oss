@@ -25,9 +25,21 @@ function isAnthropicCompatible(provider) {
 // substring for legacy nodes created before apiType was persisted — their IDs
 // embed the type: openai-compatible-<chat|responses>-<uuid>.
 export function resolveOpenAICompatibleApiType(provider, credentials = null) {
-  const stored = credentials?.providerSpecificData?.apiType;
-  if (stored === "chat" || stored === "responses") return stored;
+  const stored = credentials?.providerSpecificData?.apiType ?? credentials?.apiType;
+  if (stored === "chat" || stored === "responses" || stored === "images") return stored;
+  if (typeof provider === "string" && provider.startsWith("openai-compatible-images-")) return "images";
   return typeof provider === "string" && provider.includes("responses") ? "responses" : "chat";
+}
+
+export function isOpenAICompatibleImagesProvider(provider, credentials = null) {
+  return resolveOpenAICompatibleApiType(provider, credentials) === "images";
+}
+
+export const IMAGES_NODE_CHAT_ERROR =
+  "is an images node. Use POST /v1/images/generations or /v1/images/edits.";
+
+export function imagesNodeChatMessage(prefix) {
+  return `Provider '${prefix}' ${IMAGES_NODE_CHAT_ERROR}`;
 }
 
 // Detect request format from body structure

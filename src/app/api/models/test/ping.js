@@ -78,11 +78,32 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
   }
 
   if (kind === "image") {
+    const prefix = typeof model === "string" && model.includes("/") ? model.slice(0, model.indexOf("/")) : "";
+    const isCustomPrefix = prefix && !["openai", "xai", "gemini", "minimax", "openrouter", "codex", "sdwebui", "comfyui", "huggingface", "nanobanana", "fal-ai", "stability-ai", "black-forest-labs", "runwayml", "cloudflare-ai", "recraft", "vercel-ai-gateway", "antigravity"].includes(prefix);
+
+    if (isCustomPrefix) {
+      const res = await fetch(`${baseUrl}/api/v1/models/image`, {
+        headers,
+        signal: AbortSignal.timeout(15000),
+      });
+      const latencyMs = Date.now() - start;
+      const parsed = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail = parsed?.error?.message || parsed?.error || "";
+        return { ok: false, latencyMs, error: `HTTP ${res.status}${detail ? `: ${String(detail).slice(0, 240)}` : ""}`, status: res.status };
+      }
+      const listed = Array.isArray(parsed?.data) && parsed.data.some((m) => m.id === model);
+      if (!listed) {
+        return { ok: false, latencyMs, status: res.status, error: "Model is not listed on /v1/models/image" };
+      }
+      return { ok: true, latencyMs, error: null, status: res.status };
+    }
+
     const res = await fetch(`${baseUrl}/api/v1/images/generations`, {
       method: "POST",
       headers,
       body: JSON.stringify({ model, prompt: "test" }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(60000),
     });
     const latencyMs = Date.now() - start;
     const rawText = await res.text().catch(() => "");

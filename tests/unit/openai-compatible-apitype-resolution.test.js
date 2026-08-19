@@ -6,12 +6,14 @@
 // runtime derived chat/responses from the immutable node ID string
 // (`openai-compatible-<chat|responses>-<uuid>`) instead of the stored value.
 import { describe, it, expect } from "vitest";
-import { resolveOpenAICompatibleApiType, getTargetFormat } from "open-sse/services/provider.js";
+import { resolveOpenAICompatibleApiType, getTargetFormat, isOpenAICompatibleImagesProvider } from "open-sse/services/provider.js";
+import { resolveCompatibleApiType, isOpenAICompatibleImagesProvider as isImagesSrc } from "../../src/shared/constants/compatibleNodes.js";
 import { DefaultExecutor } from "open-sse/executors/default.js";
 import { BaseExecutor } from "open-sse/executors/base.js";
 
 const CHAT_ID = "openai-compatible-chat-3d8d3de8-1206-47ee-a42f-22113a5f2387";
 const RESPONSES_ID = "openai-compatible-responses-11111111-2222-3333-4444-555555555555";
+const IMAGES_ID = "openai-compatible-images-ba5485cc-48af-4502-aa90-890fd8e5e10b";
 const BASE = "https://api.ericding.io.vn/v1";
 
 function creds(apiType) {
@@ -34,6 +36,29 @@ describe("resolveOpenAICompatibleApiType", () => {
   it("ignores an invalid stored apiType and falls back to the ID", () => {
     expect(resolveOpenAICompatibleApiType(RESPONSES_ID, creds("bogus"))).toBe("responses");
     expect(resolveOpenAICompatibleApiType(CHAT_ID, creds(""))).toBe("chat");
+  });
+
+  it("recognizes stored images and images IDs", () => {
+    expect(resolveOpenAICompatibleApiType(IMAGES_ID, creds(undefined))).toBe("images");
+    expect(resolveOpenAICompatibleApiType(CHAT_ID, creds("images"))).toBe("images");
+    expect(resolveOpenAICompatibleApiType(IMAGES_ID, creds("chat"))).toBe("chat");
+    expect(isOpenAICompatibleImagesProvider(IMAGES_ID, creds(undefined))).toBe(true);
+    expect(isOpenAICompatibleImagesProvider(CHAT_ID, creds("images"))).toBe(true);
+    expect(isOpenAICompatibleImagesProvider("my-images-gateway", null)).toBe(false);
+  });
+
+  it("keeps src and open-sse helpers in lockstep", () => {
+    const cases = [
+      [IMAGES_ID, creds("images")],
+      [CHAT_ID, creds("images")],
+      [CHAT_ID, { apiType: "images" }],
+      [IMAGES_ID, null],
+      [RESPONSES_ID, creds(undefined)],
+    ];
+    for (const [id, extra] of cases) {
+      expect(resolveCompatibleApiType(id, extra)).toBe(resolveOpenAICompatibleApiType(id, extra));
+      expect(isImagesSrc(id, extra)).toBe(isOpenAICompatibleImagesProvider(id, extra));
+    }
   });
 });
 
@@ -70,6 +95,10 @@ describe("executor buildUrl endpoint path", () => {
         expect(ex.buildUrl("cx/gpt-5.6-sol", true, 0, creds(undefined))).toBe(`${BASE}/chat/completions`);
         const exResp = new Ex(RESPONSES_ID);
         expect(exResp.buildUrl("m", true, 0, creds(undefined))).toBe(`${BASE}/responses`);
+      });
+
+      it("refuses to build a chat URL for images nodes", () => {
+        expect(() => ex.buildUrl("gpt-image-2", true, 0, creds("images"))).toThrow(/images node/);
       });
     });
   }

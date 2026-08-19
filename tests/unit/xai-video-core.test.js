@@ -182,6 +182,61 @@ describe("handleVideoProxyCore", () => {
     expect(await result.response.json()).toEqual({ request_id: "req-after-refresh" });
   });
 
+  it("adds Grok CLI client headers only for borrowed grok-cli credentials", async () => {
+    global.fetch.mockResolvedValueOnce(jsonResponse({ request_id: "r1" }));
+    await handleVideoProxyCore({
+      provider: "xai",
+      action: "generations",
+      rawBody: "{}",
+      contentType: "application/json",
+      credentials: {
+        accessToken: "oidc",
+        sourceProvider: "grok-cli",
+        connectionId: "gcli-1",
+      },
+    });
+    const headers = global.fetch.mock.calls[0][1].headers;
+    expect(headers.Authorization).toBe("Bearer oidc");
+    expect(headers["x-grok-client-identifier"]).toBeTruthy();
+    expect(headers["x-grok-client-version"]).toBeTruthy();
+    expect(headers["User-Agent"]).toMatch(/^grok-shell\//);
+    expect(headers["x-grok-session-id"]).toBe("gcli-1");
+    expect(headers["x-xai-token-auth"]).toBeUndefined();
+  });
+
+  it("does not add Grok CLI headers for a real xai API key", async () => {
+    global.fetch.mockResolvedValueOnce(jsonResponse({ request_id: "r1" }));
+    await handleVideoProxyCore({
+      provider: "xai",
+      action: "generations",
+      rawBody: "{}",
+      contentType: "application/json",
+      credentials: { apiKey: "xai-key", sourceProvider: "xai" },
+    });
+    const headers = global.fetch.mock.calls[0][1].headers;
+    expect(headers.Authorization).toBe("Bearer xai-key");
+    expect(headers["x-grok-client-identifier"]).toBeUndefined();
+  });
+
+  it("refreshes video tokens with sourceProvider", async () => {
+    global.fetch
+      .mockResolvedValueOnce(jsonResponse({ error: "expired" }, 401))
+      .mockResolvedValueOnce(jsonResponse({ request_id: "r-new" }));
+    refreshTokenByProvider.mockResolvedValueOnce({ accessToken: "tok-NEW" });
+
+    await handleVideoProxyCore({
+      provider: "xai",
+      action: "generations",
+      rawBody: "{}",
+      credentials: {
+        accessToken: "old",
+        refreshToken: "ref",
+        sourceProvider: "grok-cli",
+      },
+    });
+    expect(refreshTokenByProvider).toHaveBeenCalledWith("grok-cli", expect.any(Object), undefined);
+  });
+
   it("401 twice → still only one refresh and one retry (no loop)", async () => {
     global.fetch
       .mockResolvedValueOnce(jsonResponse({ error: "expired" }, 401))

@@ -84,6 +84,25 @@
   without issuing a JWT
 - **Usage**: `/api/usage/request-details` redacts request/response payloads
 
+# v0.5.52 (2026-08-14)
+
+## Features
+- **xAI Imagine**: image-to-image / edits (`POST /v1/images/edits`) with up to 3
+  reference images, official `aspect_ratio` / `resolution` / `file_id`, Dashboard
+  Mode switch, and `9router xai image`. Outbound calls are JSON (never multipart).
+
+# v0.5.51 (2026-08-13)
+
+## Features
+- **Images**: OpenAI Compatible nodes accept `apiType=images` (txt2img + img2img).
+  Custom Images nodes route through `/v1/images/generations` and the new
+  `/v1/images/edits`, honor the connection proxy (`strictProxy`), and no longer
+  leak into the LLM catalog or Basic Chat picker.
+
+## Fixes
+- **Images**: `openai-compatible-images-*` no longer 400s with
+  "does not support image generation"; gateway 400s no longer write `modelLock_*`.
+
 # v0.5.50 (2026-08-05)
 
 ## Features
