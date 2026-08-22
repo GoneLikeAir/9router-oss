@@ -54,6 +54,7 @@ logs/*
 source/*
 .cursor/*
 docs/*
+!docs/reviews/
 !docs/ARCHITECTURE.md
 !docs/grok-image-usage.md
 !docs/grok-media-api.md
